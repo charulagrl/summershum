@@ -7,6 +7,39 @@ from sqlalchemy.orm import scoped_session
 
 BASE = declarative_base()
 
+def create_tables(db_url, debug=False):
+    """ Create the tables in the database using the information from the
+    url obtained.
+
+    :arg db_url, URL used to connect to the database. The URL contains
+        information with regards to the database engine, the host to
+        connect to, the user and password and the database name.
+          ie: <engine>://<user>:<password>@<host>/<dbname>
+    :kwarg alembic_ini, path to the alembic ini file. This is necessary
+        to be able to use alembic correctly, but not for the unit-tests.
+    :kwarg debug, a boolean specifying wether we should have the verbose
+        output of sqlalchemy or not.
+    :return a session that can be used to query the database.
+
+    """
+    engine = sa.create_engine(db_url, echo=debug)
+    models.Base.metadata.create_all(engine)
+    # engine.execute(collection_package_create_view(driver=engine.driver))
+    if db_url.startswith('sqlite:'):
+        # Ignore the warning about con_record
+        # pylint: disable=W0613
+        def _fk_pragma_on_connect(dbapi_con, con_record):
+            ''' Tries to enforce referential constraints on sqlite. '''
+            dbapi_con.execute('pragma foreign_keys=ON')
+        sa.event.listen(engine, 'connect', _fk_pragma_on_connect)
+
+    # Generate the Alembic version table and "stamp" it with the latest rev
+    alembic.command.stamp(get_alembic_config(db_url), "head")
+
+    # Add missing distributions
+    session = create_session(db_url, debug=debug)
+    session.add(File)
+    session.commit()
 
 def create_session(db_url, alembic_ini=None, debug=False, create=False):
     """ Create the tables in the database using the information from the
